@@ -3,16 +3,18 @@ module.exports = {
     "es2021": true,
     "node": true
   },
-  extends: ["eslint:recommended", "plugin:svelte/recommended"],
-  parser: "@typescript-eslint/parser",
+  root: true,
+  extends: ['eslint:recommended', 'plugin:@typescript-eslint/recommended', 'plugin:svelte/recommended', 'prettier'],
+  parser: '@typescript-eslint/parser',
   parserOptions: {
     ecmaVersion: "latest",
     sourceType: "module",
     project: "./tsconfig.json",
     extraFileExtensions: [".svelte"]
   },
-  plugins: ["@typescript-eslint", "svelte3"],
+  plugins: ['@typescript-eslint'],
   rules: {
+    'indent': 'error',
     '@typescript-eslint/ban-ts-comment': 'off',
     '@typescript-eslint/no-explicit-any': 'off',
     '@typescript-eslint/ban-types': 'off',
@@ -20,11 +22,11 @@ module.exports = {
   },
   overrides: [
     {
-      files: ["**/*.svelte"],
-      processor: "svelte-eslint-parser",
+      files: ["*.svelte"],
+      parser: "svelte-eslint-parser",
       parserOptions: {
-        parser: "@typescript-eslint/parser"
-      }
+        parser: '@typescript-eslint/parser'
+      },
     },
     {
       files: ['*.ts'],
