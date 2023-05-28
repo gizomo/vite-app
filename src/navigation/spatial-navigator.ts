@@ -1,25 +1,7 @@
 import {bind} from 'helpful-decorators';
 import ElementRect from './element-rect';
-
-/************/
-/* Polyfill */
-/************/
-const elementMatchesSelector: Function =
-  Element.prototype.matches ||
-  // @ts-ignore
-  Element.prototype.matchesSelector ||
-  // @ts-ignore
-  Element.prototype.mozMatchesSelector ||
-  // @ts-ignore
-  Element.prototype.webkitMatchesSelector ||
-  // @ts-ignore
-  Element.prototype.msMatchesSelector ||
-  // @ts-ignore
-  Element.prototype.oMatchesSelector ||
-  function (selector) {
-    var matchedNodes = (this.parentNode || this.document).querySelectorAll(selector);
-    return [].slice.call(matchedNodes).indexOf(this) >= 0;
-  };
+import NavSection from './nav-section';
+import {exclude, extend, selectElements} from './utils';
 
 export type ElementCenterType = {
   x: number;
@@ -58,39 +40,56 @@ type GroupPriorityType = {
   distance: ElementDistanceCalcType[];
 };
 
-type SectionType = {
-  disabled: boolean;
-  selector: any;
-  defaultElement: HTMLElement;
-  lastFocusedElement: HTMLElement;
-  enterTo: string;
-  leaveFor: string;
-  navigableFilter: Function;
+export type ExtendedSelectorType = string | HTMLElement | HTMLCollectionOf<HTMLElement>;
+
+export type LeaveForType = {
+  left?: ExtendedSelectorType;
+  right?: ExtendedSelectorType;
+  top?: ExtendedSelectorType;
+  bottom?: ExtendedSelectorType;
 };
 
-export type NavigationConfigType = {
-  selector: string;
-  straightOnly: boolean;
-  straightOverlapThreshold: number;
-  rememberSource: boolean;
-  disabled: boolean;
-  defaultElement: string;
-  enterTo: string;
-  leaveFor: null;
-  restrict: Restrict;
+export interface INavigationConfig {
+  selector?: ExtendedSelectorType;
+  straightOnly?: boolean; // Only elements in the straight (vertical or horizontal) direction will be navigated
+  straightOverlapThreshold?: number; // This threshold is used to determine whether an element is considered in the straight (vertical or horizontal) directions. Valid number is between 0 to 1.0.
+  rememberSource?: boolean; // The previously focused element will have higher priority to be chosen as the next candidate
+  enterTo?: 'last-focused' | 'default-element' | ''; // Define which element in this section should be focused first, if the focus comes from another section
+  leaveFor?: LeaveForType; // Next element which should be focused on leaving current section. Each direction can inlcude element selector-string / DOMElement or list
+  restrict?: Restrict; // 'self-first' implies that elements within the same section will have higher priority to be chosen as the next candidate. 'self-only' implies that elements in the other sections will never be navigated by arrow keys (only by calling focus() manually).
   tabIndexIgnoreList: string;
-  navigableFilter: Function;
-  previous?: {
-    target: HTMLElement;
-    destination: any;
-    reverse: DirectionType;
-  };
-  id?: string;
+  navigableFilter: (element: HTMLElement, sectionId?: string) => boolean;
+}
+
+export interface INavSection extends INavigationConfig {
+  defaultElementSelector?: string;
+  lastFocusedElement: HTMLElement;
+  previousFocus?: PreviosFocusType;
+  isDisabled: () => boolean;
+  disable: () => void;
+  enable: () => void;
+  match: (element: HTMLElement) => boolean;
+  makeFocusable: () => void;
+  savePreviousFocus: (target: HTMLElement, destination: HTMLElement, reverse: DirectionType) => void;
+  isNavigable: (element: HTMLElement, verifySectionSelector?: boolean) => boolean;
+  getSectionDefaultElement: () => HTMLElement;
+  getSectionNavigableElements: () => HTMLElement[];
+  getSectionLastFocusedElement: () => HTMLElement;
+  getleaveForAt: (direction: DirectionType) => ExtendedSelectorType;
+}
+
+export type PreviosFocusType = {
+  target: HTMLElement;
+  destination: HTMLElement;
+  reverse: DirectionType;
 };
 
-enum Restrict {
+export type NavConfigType = Partial<INavSection> & {id?: string};
+
+export enum Restrict {
   SELF_ONLY = 'self-only',
   SELF_FIRST = 'self-first',
+  NONDE = 'none',
 }
 
 const KeyMapping = {
@@ -107,19 +106,17 @@ const Reverse = {
   right: 'left',
 } as const;
 
-type DirectionType = 'down' | 'left' | 'right' | 'up';
+export type DirectionType = 'down' | 'left' | 'right' | 'up';
 
 const EVENT_PREFIX = 'sn:';
 const ID_POOL_PREFIX = 'section-';
 
 export default class SpatialNavigator {
-  public static config: NavigationConfigType = {
+  public static config: INavigationConfig = {
     selector: '',
     straightOnly: false,
     straightOverlapThreshold: 0.5,
     rememberSource: false,
-    disabled: false,
-    defaultElement: '',
     enterTo: '',
     leaveFor: null,
     restrict: Restrict.SELF_FIRST,
@@ -133,7 +130,7 @@ export default class SpatialNavigator {
   private paused: boolean = false;
   private duringFocusChange: boolean = false;
 
-  private sections: Record<string, any> = {};
+  private sections: Record<string, INavSection> = {};
   private sectionCount: number = 0;
 
   private defaultSectionId: string = '';
@@ -167,7 +164,7 @@ export default class SpatialNavigator {
     this.duringFocusChange = false;
   }
 
-  public setConfig(config: Partial<NavigationConfigType>, sectionId?: string): void {
+  public setConfig(config: NavConfigType, sectionId?: string): this {
     for (const key in config) {
       if (SpatialNavigator.config[key] !== undefined) {
         if (sectionId) {
@@ -178,13 +175,10 @@ export default class SpatialNavigator {
       }
     }
 
-    if (sectionId) {
-      //TODO возможно это лишнее
-      // this.sections[sectionId] = this.extend({}, this.sections[sectionId]);
-    }
+    return this;
   }
 
-  public addSection(config: Partial<NavigationConfigType>, sectionId?: string): string {
+  public addSection(config: NavConfigType, sectionId?: string): this {
     if (!sectionId) {
       sectionId = 'string' === typeof config.id ? config.id : this.generateId();
     }
@@ -193,12 +187,10 @@ export default class SpatialNavigator {
       throw new Error('Section "' + sectionId + '" has already existed!');
     }
 
-    this.sections[sectionId] = {};
+    this.sections[sectionId] = new NavSection(config, sectionId);
     this.sectionCount++;
 
-    this.setConfig(config, sectionId);
-
-    return sectionId;
+    return this;
   }
 
   public removeSection(id: string): boolean {
@@ -208,7 +200,7 @@ export default class SpatialNavigator {
 
     if (this.sections[id]) {
       this.sections[id] = undefined;
-      this.sections = this.extend({}, this.sections);
+      this.sections = extend({}, this.sections);
       this.sectionCount--;
 
       if (this.lastSectionId === id) {
@@ -223,7 +215,7 @@ export default class SpatialNavigator {
 
   public disableSection(id: string): boolean {
     if (this.sections[id]) {
-      this.sections[id].disabled = true;
+      this.sections[id].disable();
       return true;
     }
 
@@ -232,7 +224,7 @@ export default class SpatialNavigator {
 
   public enableSection(id: string): boolean {
     if (this.sections[id]) {
-      this.sections[id].disabled = false;
+      this.sections[id].enable();
       return true;
     }
 
@@ -294,7 +286,7 @@ export default class SpatialNavigator {
       return false;
     }
 
-    const element: HTMLElement = selector ? this.parseSelector(selector)[0] : this.getCurrentFocusedElement();
+    const element: HTMLElement = selector ? selectElements(selector)[0] : this.getCurrentFocusedElement();
 
     if (!element) {
       return false;
@@ -314,27 +306,15 @@ export default class SpatialNavigator {
   }
 
   public makeFocusable(sectionId?: string): void {
-    const doMakeFocusable: (section: any) => void = section => {
-      const tabIndexIgnoreList: string =
-        section.tabIndexIgnoreList !== undefined
-          ? section.tabIndexIgnoreList
-          : SpatialNavigator.config.tabIndexIgnoreList;
-      this.parseSelector(section.selector).forEach((element: HTMLElement) => {
-        if (!this.matchSelector(element, tabIndexIgnoreList) && !element.getAttribute('tabindex')) {
-          element.setAttribute('tabindex', '-1');
-        }
-      });
-    };
-
     if (sectionId) {
       if (this.sections[sectionId]) {
-        doMakeFocusable(this.sections[sectionId]);
+        this.sections[sectionId].makeFocusable();
       } else {
         throw new Error('Section "' + sectionId + '" doesn\'t exist!');
       }
     } else {
       for (const id in this.sections) {
-        doMakeFocusable(this.sections[id]);
+        this.sections[id].makeFocusable();
       }
     }
   }
@@ -461,7 +441,7 @@ export default class SpatialNavigator {
     target: HTMLElement,
     direction: DirectionType,
     candidates: HTMLElement[],
-    config: NavigationConfigType
+    config: NavConfigType
   ): HTMLElement {
     if (!target || !direction || !candidates || !candidates.length) {
       return;
@@ -578,12 +558,12 @@ export default class SpatialNavigator {
 
     if (
       config.rememberSource &&
-      config.previous &&
-      config.previous.destination === target &&
-      config.previous.reverse === direction
+      config.previousFocus &&
+      config.previousFocus.destination === target &&
+      config.previousFocus.reverse === direction
     ) {
       for (var j = 0; j < destGroup.length; j++) {
-        if (destGroup[j].element === config.previous.target) {
+        if (destGroup[j].element === config.previousFocus.target) {
           destination = destGroup[j].element;
           break;
         }
@@ -611,128 +591,17 @@ export default class SpatialNavigator {
     return id;
   }
 
-  private parseSelector(selector: string | HTMLElement | HTMLCollectionOf<HTMLElement>): HTMLElement[] {
-    try {
-      if (selector) {
-        if ('string' === typeof selector) {
-          return [].slice.call(document.querySelectorAll(selector));
-        } else if ('object' === typeof selector && undefined !== selector['length']) {
-          return [].slice.call(selector);
-        } else if ('object' === typeof selector && 1 === selector['nodeType']) {
-          return [selector as HTMLElement];
-        }
-      }
-    } catch (err: any) {
-      console.error(err);
-    }
-  }
-
-  private matchSelector(element: HTMLElement, selector: any): boolean {
-    if ('string' === typeof selector) {
-      return elementMatchesSelector.call(element, selector);
-    } else if ('object' === typeof selector && selector.length) {
-      return selector.indexOf(element) >= 0;
-    } else if ('object' === typeof selector && 1 === selector.nodeType) {
-      return element === selector;
-    }
-
-    return false;
-  }
-
   private getCurrentFocusedElement(): HTMLElement {
     if (document.activeElement && document.activeElement !== document.body) {
       return document.activeElement as HTMLElement;
     }
   }
 
-  private extend<C extends Record<number | string | symbol, any>>(
-    out?: Record<number | string | symbol, any>,
-    ...args: C[]
-  ): C {
-    out = out || {};
-
-    for (var i = 1; i < args.length; i++) {
-      if (!args[i]) {
-        continue;
-      }
-
-      for (var key in args[i]) {
-        if (args[i].hasOwnProperty(key) && args[i][key] !== undefined) {
-          out[key] = args[i][key];
-        }
-      }
-    }
-
-    return out;
-  }
-
-  private exclude(elements: HTMLElement[], excluded: HTMLElement | HTMLElement[]): HTMLElement[] {
-    if (!Array.isArray(excluded)) {
-      excluded = [excluded];
-    }
-
-    for (let i: number = 0, index: number; i < excluded.length; i++) {
-      index = elements.indexOf(excluded[i]);
-
-      if (index >= 0) {
-        elements.splice(index, 1);
-      }
-    }
-
-    return elements;
-  }
-
-  private isNavigable(element: HTMLElement, sectionId: string, verifySectionSelector?: boolean): boolean {
-    if (!element || !sectionId || !this.sections[sectionId] || this.sections[sectionId].disabled) {
-      return false;
-    }
-
-    if ((element.offsetWidth <= 0 && element.offsetHeight <= 0) || element.hasAttribute('disabled')) {
-      return false;
-    }
-
-    if (verifySectionSelector && !this.matchSelector(element, this.sections[sectionId].selector)) {
-      return false;
-    }
-
-    if ('function' === typeof this.sections[sectionId].navigableFilter) {
-      if (this.sections[sectionId].navigableFilter(element, sectionId) === false) {
-        return false;
-      }
-    } else if ('function' === typeof SpatialNavigator.config.navigableFilter) {
-      if (SpatialNavigator.config.navigableFilter(element, sectionId) === false) {
-        return false;
-      }
-    }
-
-    return true;
-  }
-
   private getSectionId(element: HTMLElement): string {
     for (const id in this.sections) {
-      if (!this.sections[id].disabled && this.matchSelector(element, this.sections[id].selector)) {
+      if (!this.sections[id].isDisabled() && this.sections[id].match(element)) {
         return id;
       }
-    }
-  }
-
-  private getSectionNavigableElements(sectionId: string): HTMLElement[] {
-    return this.parseSelector(this.sections[sectionId].selector)?.filter((element: HTMLElement) =>
-      this.isNavigable(element, sectionId)
-    );
-  }
-
-  private getSectionDefaultElement(sectionId): HTMLElement {
-    return this.parseSelector(this.sections[sectionId].defaultElement)?.find((element: HTMLElement) =>
-      this.isNavigable(element, sectionId, true)
-    );
-  }
-
-  private getSectionLastFocusedElement(sectionId: string): HTMLElement {
-    const lastFocusedElement: HTMLElement = this.sections[sectionId].lastFocusedElement;
-
-    if (this.isNavigable(lastFocusedElement, sectionId, true)) {
-      return lastFocusedElement;
     }
   }
 
@@ -817,16 +686,16 @@ export default class SpatialNavigator {
     }
   }
 
-  private focusExtendedSelector(selector: string, direction?: DirectionType): boolean {
-    if ('@' === selector.charAt(0)) {
+  private focusExtendedSelector(selector: ExtendedSelectorType, direction?: DirectionType): boolean {
+    if ('string' === typeof selector && '@' === selector.charAt(0)) {
       return 1 === selector.length ? this.focusSection() : this.focusSection(selector.substring(1));
     } else {
-      const next: HTMLElement = this.parseSelector(selector)[0];
+      const next: HTMLElement = selectElements(selector)[0];
 
       if (next) {
         const nextSectionId = this.getSectionId(next);
 
-        if (this.isNavigable(next, nextSectionId)) {
+        if (this.sections[nextSectionId].isNavigable(next)) {
           return this.focusElement(next, nextSectionId, direction);
         }
       }
@@ -838,7 +707,7 @@ export default class SpatialNavigator {
   private focusSection(sectionId?: string): boolean {
     const range: string[] = [];
     const addRange: (id: string) => void = (id: string) => {
-      if (id && range.indexOf(id) < 0 && this.sections[id] && !this.sections[id].disabled) {
+      if (id && range.indexOf(id) < 0 && this.sections[id] && !this.sections[id].isDisabled()) {
         range.push(id);
       }
     };
@@ -856,14 +725,14 @@ export default class SpatialNavigator {
 
       if ('last-focused' === this.sections[id].enterTo) {
         next =
-          this.getSectionLastFocusedElement(id) ||
-          this.getSectionDefaultElement(id) ||
-          this.getSectionNavigableElements(id)[0];
+          this.sections[id].getSectionLastFocusedElement() ||
+          this.sections[id].getSectionDefaultElement() ||
+          this.sections[id].getSectionNavigableElements()[0];
       } else {
         next =
-          this.getSectionDefaultElement(id) ||
-          this.getSectionLastFocusedElement(id) ||
-          this.getSectionNavigableElements(id)[0];
+          this.sections[id].getSectionDefaultElement() ||
+          this.sections[id].getSectionLastFocusedElement() ||
+          this.sections[id].getSectionNavigableElements()[0];
       }
 
       if (next) {
@@ -880,16 +749,14 @@ export default class SpatialNavigator {
   }
 
   private gotoLeaveFor(sectionId: string, direction: DirectionType): boolean | undefined {
-    if (this.sections[sectionId].leaveFor && this.sections[sectionId].leaveFor[direction] !== undefined) {
-      const next: string = this.sections[sectionId].leaveFor[direction];
+    const next: ExtendedSelectorType = this.sections[sectionId].getleaveForAt(direction);
 
-      if ('string' === typeof next) {
-        if ('' === next) {
-          return;
-        }
-
-        return this.focusExtendedSelector(next, direction);
+    if ('string' === typeof next) {
+      if ('' === next) {
+        return;
       }
+
+      return this.focusExtendedSelector(next, direction);
     }
 
     return false;
@@ -910,15 +777,11 @@ export default class SpatialNavigator {
     let allNavigableElements: HTMLElement[] = [];
 
     for (const id in this.sections) {
-      sectionNavigableElements[id] = this.getSectionNavigableElements(id);
+      sectionNavigableElements[id] = this.sections[id].getSectionNavigableElements();
       allNavigableElements = allNavigableElements.concat(sectionNavigableElements[id]);
     }
 
-    const config: NavigationConfigType = this.extend<NavigationConfigType>(
-      {},
-      SpatialNavigator.config,
-      this.sections[currentSectionId]
-    );
+    const config: NavConfigType = extend<NavConfigType>({}, SpatialNavigator.config, this.sections[currentSectionId]);
     let next: HTMLElement;
 
     if (config.restrict === Restrict.SELF_ONLY || config.restrict === Restrict.SELF_FIRST) {
@@ -927,7 +790,7 @@ export default class SpatialNavigator {
       next = this.navigate(
         currentFocusedElement,
         direction,
-        this.exclude(currentSectionNavigableElements, currentFocusedElement),
+        exclude(currentSectionNavigableElements, currentFocusedElement),
         config
       );
 
@@ -935,7 +798,7 @@ export default class SpatialNavigator {
         next = this.navigate(
           currentFocusedElement,
           direction,
-          this.exclude(allNavigableElements, currentSectionNavigableElements),
+          exclude(allNavigableElements, currentSectionNavigableElements),
           config
         );
       }
@@ -943,13 +806,13 @@ export default class SpatialNavigator {
       next = this.navigate(
         currentFocusedElement,
         direction,
-        this.exclude(allNavigableElements, currentFocusedElement),
+        exclude(allNavigableElements, currentFocusedElement),
         config
       );
     }
 
     if (next) {
-      this.sections[currentSectionId].previous = {
+      this.sections[currentSectionId].previousFocus = {
         target: currentFocusedElement,
         destination: next,
         reverse: Reverse[direction],
@@ -971,10 +834,11 @@ export default class SpatialNavigator {
         switch (this.sections[nextSectionId].enterTo) {
           case 'last-focused':
             enterToElement =
-              this.getSectionLastFocusedElement(nextSectionId) || this.getSectionDefaultElement(nextSectionId);
+              this.sections[nextSectionId].getSectionLastFocusedElement() ||
+              this.sections[nextSectionId].getSectionDefaultElement();
             break;
           case 'default-element':
-            enterToElement = this.getSectionDefaultElement(nextSectionId);
+            enterToElement = this.sections[nextSectionId].getSectionDefaultElement();
             break;
         }
 
@@ -1052,7 +916,7 @@ export default class SpatialNavigator {
 
     if (!currentFocusedElement) {
       if (this.lastSectionId) {
-        currentFocusedElement = this.getSectionLastFocusedElement(this.lastSectionId);
+        currentFocusedElement = this.sections[this.lastSectionId].getSectionLastFocusedElement();
       }
 
       if (!currentFocusedElement) {
