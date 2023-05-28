@@ -27,6 +27,7 @@
     "vite": "^4.3.2"
   },
   "dependencies": {
+    "helpful-decorators": "^2.1.0",
     "svelte-tiny-virtual-list": "^2.0.5"
   }
 }

@@ -41,9 +41,13 @@
       }
     });
   });
+
+  window['nav'].addSection({id: `horizontalList-${value}`, selector: `.horizontalList-${value} .focusable`});
+  // window['nav'].makeFocusable(`horizontalList-${value}`);
+  window['nav'].focus(`horizontalList-book`);
 </script>
 
-<div class="list" bind:offsetWidth={listWidth}>
+<div class={`list horizontalList-${value}`} bind:offsetWidth={listWidth}>
   <h2>{value}</h2>
   <VirtualList
     scrollDirection={'horizontal'}
@@ -52,7 +56,7 @@
     itemSize={210}
     itemCount={list.length}
     on:afterScroll={onScroll}>
-    <div slot="item" let:index let:style {style} class="sticker" data-num={index + 1}>
+    <div slot="item" let:index let:style {style} class="sticker focusable" data-num={index + 1} tabindex="-1">
       <div class="img-wrapper"><img class="img-fit" src={list[index].Poster} alt={list[index].Title} /></div>
       <p>{list[index].Title}</p>
     </div>
@@ -60,6 +64,10 @@
 </div>
 
 <style>
+  :focus {
+    outline: none;
+    border: 2px solid red;
+  }
   h2 {
     text-transform: capitalize;
     margin: 0;
@@ -97,6 +105,7 @@
   .img-wrapper {
     width: 100%;
     height: 270px;
+    background-color: #efefef;
   }
 
   .img-fit {

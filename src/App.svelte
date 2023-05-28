@@ -1,6 +1,7 @@
 <script lang="ts">
   import VirtualList from 'svelte-tiny-virtual-list';
   import HorizontalList from './HorizontalList.svelte';
+  import SpatialNavigator from './navigation/spatial-navigator';
 
   export let name: string = 'Vite App';
 
@@ -21,6 +22,9 @@
     'life',
   ];
   let listHeight: number = 0;
+
+  window['nav'] = new SpatialNavigator();
+  window['nav'].init();
 </script>
 
 <main>
