@@ -34,6 +34,46 @@ export function selectElements(selector: string | HTMLElement | HTMLCollectionOf
   }
 }
 
+export const EVENT_PREFIX = 'sn:';
+
+export function fireEvent(element: HTMLElement, type: string, detail?: any, cancelable: boolean = true): boolean {
+  return element.dispatchEvent(new CustomEvent(EVENT_PREFIX + type, {detail, cancelable}));
+}
+
+export const KeyMapping = {
+  37: 'left',
+  38: 'up',
+  39: 'right',
+  40: 'down',
+} as const;
+
+export function getDirection(event: KeyboardEvent): (typeof KeyMapping)[keyof typeof KeyMapping] {
+  if (event.keyCode) {
+    return KeyMapping[event.keyCode];
+  }
+
+  switch (event.code) {
+    case 'ArrowUp':
+      return KeyMapping[38];
+    case 'ArrowDown':
+      return KeyMapping[40];
+    case 'ArrowLeft':
+      return KeyMapping[37];
+    case 'ArrowRight':
+      return KeyMapping[39];
+    default:
+      return;
+  }
+}
+
+export function isEnter(event: KeyboardEvent): boolean {
+  if (event.keyCode) {
+    return 13 === event.keyCode;
+  }
+
+  return 'Enter' === event.code;
+}
+
 export function extend<C extends Record<number | string | symbol, any>>(
   out?: Record<number | string | symbol, any>,
   ...args: C[]

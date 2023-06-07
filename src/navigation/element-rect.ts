@@ -8,7 +8,7 @@ export default class ElementRect implements IElementRect {
   public bottom: number;
   public right: number;
   public left: number;
-  public element: Element;
+  public element: HTMLElement;
   public center: ElementCenterType;
 
   constructor(element: HTMLElement) {
@@ -29,7 +29,7 @@ export default class ElementRect implements IElementRect {
     const x: number = left + Math.floor(width / 2);
     const y: number = top + Math.floor(height / 2);
 
-    return {x, y, left: x, right: x, top: y, bottom: y};
+    return {x, y, left: x, right: x, top: y, bottom: y, width: 0, height: 0};
   }
 
   @bind
@@ -75,4 +75,79 @@ export default class ElementRect implements IElementRect {
   public rightIsBetter({right}: IElementRect): number {
     return -1 * right;
   }
+}
+
+/**
+ * Given a set of {@link IElementRect} array, divide them into 9 groups with
+ * respect to the position of targetRect. Rects centered inside targetRect
+ * are grouped as 4th group; straight left as 3rd group; straight right as
+ * 5th group; ..... and so on. See below for the corresponding group number:
+ *
+ * ```
+ *  |---|---|---|
+ *  | 0 | 1 | 2 |
+ *  |---|---|---|
+ *  | 3 | 4 | 5 |
+ *  |---|---|---|
+ *  | 6 | 7 | 8 |
+ *  |---|---|---|
+ * ```
+ *
+ * @param {Array.<IElementRect>} rects to be divided.
+ * @param {IElementRect} targetRect reference position for groups.
+ *
+ * @return {Array.Array.<IElementRect>} 9-cells matrix, where rects are categorized into these 9 cells by their group number.
+ */
+export function partition(
+  rects: IElementRect[],
+  {width, height, top, bottom, left, right}: IElementRect | ElementCenterType,
+  threshold: number = 0.5
+): IElementRect[][] {
+  const groups: IElementRect[][] = [[], [], [], [], [], [], [], [], []];
+
+  rects.forEach((rect: IElementRect) => {
+    const x: number = rect.center.x < left ? 0 : rect.center.x <= right ? 1 : 2;
+    const y: number = rect.center.y < top ? 0 : rect.center.y <= bottom ? 1 : 2;
+    const groupId: number = y * 3 + x;
+
+    // add to group by element center
+    groups[groupId].push(rect);
+
+    // add to additional groups for elements at angled groups
+    if ([0, 2, 6, 8].indexOf(groupId) !== -1) {
+      if (rect.left <= right - width * threshold) {
+        if (groupId === 2) {
+          groups[1].push(rect);
+        } else if (groupId === 8) {
+          groups[7].push(rect);
+        }
+      }
+
+      if (rect.right >= left + width * threshold) {
+        if (groupId === 0) {
+          groups[1].push(rect);
+        } else if (groupId === 6) {
+          groups[7].push(rect);
+        }
+      }
+
+      if (rect.top <= bottom - height * threshold) {
+        if (groupId === 6) {
+          groups[3].push(rect);
+        } else if (groupId === 8) {
+          groups[5].push(rect);
+        }
+      }
+
+      if (rect.bottom >= top + height * threshold) {
+        if (groupId === 0) {
+          groups[3].push(rect);
+        } else if (groupId === 2) {
+          groups[5].push(rect);
+        }
+      }
+    }
+  });
+
+  return groups;
 }

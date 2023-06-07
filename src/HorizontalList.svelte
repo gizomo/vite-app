@@ -7,7 +7,7 @@
     Poster: string;
   };
 
-  import {onMount} from 'svelte';
+  import {onMount, onDestroy} from 'svelte';
   import VirtualList from 'svelte-tiny-virtual-list';
 
   export let value: string;
@@ -42,9 +42,15 @@
     });
   });
 
-  window['nav'].addSection({id: `horizontalList-${value}`, selector: `.horizontalList-${value} .focusable`});
-  // window['nav'].makeFocusable(`horizontalList-${value}`);
-  window['nav'].focus(`horizontalList-book`);
+  window['nav'].addSection({
+    id: `horizontalList-${value}`,
+    selector: `.horizontalList-${value} .focusable`,
+    leaveFor: {right: '', left: ''},
+  });
+
+  onDestroy(() => {
+    window['nav'].removeSection(`horizontalList-${value}`);
+  });
 </script>
 
 <div class={`list horizontalList-${value}`} bind:offsetWidth={listWidth}>
@@ -58,7 +64,7 @@
     on:afterScroll={onScroll}>
     <div slot="item" let:index let:style {style} class="sticker focusable" data-num={index + 1} tabindex="-1">
       <div class="img-wrapper"><img class="img-fit" src={list[index].Poster} alt={list[index].Title} /></div>
-      <p>{list[index].Title}</p>
+      <p class="sticker-title">{list[index].Title}</p>
     </div>
   </VirtualList>
 </div>
@@ -66,12 +72,14 @@
 <style>
   :focus {
     outline: none;
-    border: 2px solid red;
+    /* border: 2px solid red; */
   }
   h2 {
     text-transform: capitalize;
     margin: 0;
     margin-bottom: 8px;
+    color: #efefef;
+    padding: 0 44px;
   }
 
   p {
@@ -90,6 +98,7 @@
   .list :global(.virtual-list-wrapper) {
     scrollbar-width: none;
     -ms-overflow-style: none;
+    padding: 0 40px;
   }
 
   .list :global(.virtual-list-wrapper)::-webkit-scrollbar {
@@ -100,17 +109,28 @@
     box-sizing: border-box;
     height: 100%;
     padding-right: 16px;
+    transform: translateZ(0);
   }
 
   .img-wrapper {
     width: 100%;
     height: 270px;
-    background-color: #efefef;
+    border: 4px solid transparent;
+  }
+
+  .sticker:focus .img-wrapper {
+    border: 4px solid #efefef;
   }
 
   .img-fit {
     object-fit: cover;
     height: 100%;
     width: 100%;
+    background-color: #999;
+  }
+
+  .sticker-title {
+    padding: 0 4px;
+    color: #efefef;
   }
 </style>
